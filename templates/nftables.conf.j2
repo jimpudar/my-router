@@ -1,0 +1,76 @@
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table ip filter {
+    # applies to packets which are traveling through this machine
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        # allow packets leaving the network
+        oifname {{ external_ifname }} accept
+
+        # allow replies
+        iifname {{ external_ifname }} ct state related,established accept
+    }
+
+    chain input {
+        type filter hook input priority 0; policy drop;
+
+        # drop invalid packets early
+        ct state invalid drop
+
+        # accept replies
+        ct state related,established accept
+
+        # open loopback interface
+        iif lo accept
+
+        # accept ICMP and IGMP
+        ip protocol icmp accept
+        ip protocol igmp accept
+
+        # allow SSH from all interfaces
+        tcp dport ssh accept
+
+        # allow Mosh from all interfaces
+        udp dport { 60000-61000 } accept
+
+        # allow DNS queries from the LAN
+        iifname {{ internal_ifname }} tcp dport 53 accept
+        iifname {{ internal_ifname }} udp dport 53 accept
+
+        # allow traceroute
+        udp dport { 33434-33524 } accept
+    }
+}
+
+table ip6 filter {
+    chain forward {
+        type filter hook forward priority 0; policy drop;
+
+        # for now, we will not forward IPv6 traffic.
+    }
+
+    chain input {
+        type filter hook forward priority 0; policy drop;
+
+        # drop invalid packets early
+        ct state invalid drop
+
+        # accept replies
+        ct state related,established accept
+
+        # accept ICMPv6
+        ip6 nexthdr icmpv6 accept
+    }
+}
+
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority 100; policy accept;
+
+        # perform NAT for packets coming from the LAN and going to the Internet
+        ip saddr {{ lan_network }} oifname {{ external_ifname }} masquerade
+    }
+}
