@@ -1,0 +1,43 @@
+---
+- name: Router Setup
+  hosts: debrouter2.crbj.io
+  
+  pre_tasks:
+  - set_fact:
+      ifs: "{{ ansible_facts.interfaces | reject('equalto', 'lo') }}"
+  - set_fact:
+      external_if: "{{ ansible_facts.default_ipv4.interface }}"
+  - set_fact:
+      internal_if: "{{ ifs | reject('equalto', external_if) | first }}"
+  - set_fact:
+      external_if_macaddress: "{{ ansible_facts[external_if].macaddress }}"
+  - set_fact:
+      internal_if_macaddress: "{{ ansible_facts[internal_if].macaddress }}"
+
+  tasks:
+  - name: Print external interface MAC address
+    ansible.builtin.debug:
+      var: external_if_macaddress
+  - name: Print internal interface MAC address
+    ansible.builtin.debug:
+      var: internal_if_macaddress
+  - name: Set external interface name
+    ansible.builtin.template:
+      src: templates/link.j2
+      dest: /etc/systemd/network/10-extern0.link
+      owner: root
+      group: root
+      mode: '0644'
+    vars:
+      macaddress: "{{ external_if_macaddress }}"
+      ifname: "extern0"
+  - name: Set internal interface name
+    ansible.builtin.template:
+      src: templates/link.j2
+      dest: /etc/systemd/network/20-intern0.link
+      owner: root
+      group: root
+      mode: '0644'
+    vars:
+      macaddress: "{{ internal_if_macaddress }}"
+      ifname: "intern0"
