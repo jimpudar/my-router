@@ -40,6 +40,9 @@ table ip filter {
         iifname {{ internal_ifname }} tcp dport 53 accept
         iifname {{ internal_ifname }} udp dport 53 accept
 
+        # allow DHCP from the LAN
+        iifname {{ internal_ifname }} udp dport { 67,68 } accept
+
         # allow HTTP from the LAN for Pi-hole admin console
         iifname {{ internal_ifname }} tcp dport http accept
 
