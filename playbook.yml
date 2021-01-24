@@ -1,5 +1,6 @@
 ---
 - name: Router Setup
+  hosts: debrouter3.crbj.io
 
   pre_tasks:
     - set_fact:
@@ -12,6 +13,14 @@
         external_if_macaddress: "{{ ansible_facts[external_if].macaddress }}"
     - set_fact:
         internal_if_macaddress: "{{ ansible_facts[internal_if].macaddress }}"
+
+  vars:
+    internal_network: "192.168.200.0/24"
+    internal_ip: "192.168.200.1"
+    internal_netmask: "24"
+    internal_domain: "crbj.io"
+    dhcp_start: "192.168.200.2"
+    dhcp_end: "192.168.200.254"
 
   tasks:
     - name: Set external interface name
@@ -61,7 +70,7 @@
         mode: '0644'
       vars:
         ifname: "intern0"
-        address_with_netmask: "192.168.100.1/24"
+        address_with_netmask: "{{ internal_ip }}/{{internal_netmask}}"
       notify:
         - reboot host
 
@@ -71,12 +80,16 @@
         state: stopped
         enabled: no
         masked: yes
+
     - name: Enable systemd-networkd.service
       ansible.builtin.systemd:
         name: systemd-networkd.service
         state: started
         enabled: yes
         masked: no
+
+    - name: Reboot if required
+      ansible.builtin.meta: flush_handlers
 
     - name: Update apt cache
       ansible.builtin.apt:
@@ -110,9 +123,73 @@
       vars:
         internal_ifname: "intern0"
         external_ifname: "extern0"
-        lan_network: "192.168.100.0/24"
+        lan_network: "{{ internal_network }}"
       notify:
         - restart nftables
+
+    - name: Ensure Pi-hole configuration directory exists
+      ansible.builtin.file:
+        path: /etc/pihole
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure Pi-hole installation variables
+      ansible.builtin.template:
+        src: templates/pihole.setupvars.j2
+        dest: /etc/pihole/setupVars.conf
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        internal_ifname: "intern0"
+        ipv4_address_with_netmask: "{{ internal_ip }}/{{ internal_netmask }}"
+        local_domain_name: "{{ internal_domain }}"
+        dhcp_range_start: "{{ dhcp_start }}"
+        dhcp_range_end: "{{ dhcp_end}}"
+        dhcp_router: "{{ internal_ip }}"
+
+    - name: Ensure dnsmasq configuration directory exists
+      ansible.builtin.file:
+        path: /etc/dnsmasq.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Add extra dnsmasq configuration
+      ansible.builtin.template:
+        src: templates/dnsmasq.extras.j2
+        dest: /etc/dnsmasq.d/10-extra.conf
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        local_domain_name: "{{ internal_domain }}"
+
+    - name: Install CA certs
+      ansible.builtin.apt:
+        name: ca-certificates
+        state: latest
+
+    - name: Download Pi-hole installer
+      get_url:
+        url: https://install.pi-hole.net
+        dest: /etc/pihole/basic-install.sh
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Install Pi-hole
+      command: /etc/pihole/basic-install.sh --unattended
+
+    - name: Completely disable dhcpcd.service
+      ansible.builtin.systemd:
+        name: dhcpcd.service
+        state: stopped
+        enabled: no
+        masked: yes
 
   handlers:
     - name: reboot host
